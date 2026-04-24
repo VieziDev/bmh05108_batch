@@ -134,6 +134,9 @@ class Body270Result:
     right_foot_muscle_ratio: float | None = field(default=None)
     left_foot_muscle_ratio: float | None = field(default=None)
 
+    # --- Metadata: algorithm warning code from device (0 = none) ---
+    device_error_type: int = field(default=0)
+
     def asdict(self) -> dict[str, object]:
         """Return all fields as a flat plain dict suitable for CSV serialisation."""
         return {

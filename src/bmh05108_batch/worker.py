@@ -75,7 +75,11 @@ def _make_output_row(
     out["out_of_range"] = ",".join(violations) if violations else ""
 
     if isinstance(result, Body270Result):
-        out.update(result.asdict())
+        d = result.asdict()
+        err = d.pop("device_error_type", 0)
+        out.update(d)
+        if err:
+            out["device_error_type"] = f"0x{err:02X}"
     elif isinstance(result, BodyError):
         out["device_error_type"] = f"0x{result.error_type:02X}"
         out["device_error_message"] = result.message
@@ -171,6 +175,9 @@ def worker_main(
                         "row_id=%d error_device 0x%02X: %s",
                         row_id, result.error_type, result.message,
                     )
+                elif isinstance(result, Body270Result) and result.device_error_type != 0:
+                    status = "ok_with_warning"
+                    log.debug("row_id=%d ok_with_warning 0x%02X", row_id, result.device_error_type)
                 else:
                     status = "ok"
                     log.debug("row_id=%d ok", row_id)
