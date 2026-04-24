@@ -152,24 +152,24 @@ def build_body270_input(
 ) -> bytes:
     """Serialize input fields for the 0xD0 Body270 measurement command.
 
-    Returns 27 bytes packed in little-endian format.
+    Returns 26 bytes packed in little-endian format.
 
-    Data layout:
+    Data layout (verified against reference packet from §6):
       [0]    product_number : uint8
       [1]    gender         : uint8  (0=Female, 1=Male)
-      [2]    age            : uint8
-      [3-4]  height_cm      : uint16 LE (centimetres)
-      [5-6]  weight         : uint16 LE, unit 0.1 kg  (weight_kg × 10)
-      [7-8]  rh_20k         : uint16 LE, unit 0.1 Ω
-      [9-10] lh_20k         : uint16 LE, unit 0.1 Ω
-      [11-12]trunk_20k      : uint16 LE, unit 0.1 Ω
-      [13-14]rf_20k         : uint16 LE, unit 0.1 Ω
-      [15-16]lf_20k         : uint16 LE, unit 0.1 Ω
-      [17-18]rh_100k        : uint16 LE, unit 0.1 Ω
-      [19-20]lh_100k        : uint16 LE, unit 0.1 Ω
-      [21-22]trunk_100k     : uint16 LE, unit 0.1 Ω
-      [23-24]rf_100k        : uint16 LE, unit 0.1 Ω
-      [25-26]lf_100k        : uint16 LE, unit 0.1 Ω
+      [2]    height_cm      : uint8  (centimetres, fits in 1 byte for 90–220 cm)
+      [3]    age            : uint8
+      [4-5]  weight         : uint16 LE, unit 0.1 kg  (weight_kg × 10)
+      [6-7]  rh_20k         : uint16 LE, unit 0.1 Ω
+      [8-9]  lh_20k         : uint16 LE, unit 0.1 Ω
+      [10-11]trunk_20k      : uint16 LE, unit 0.1 Ω
+      [12-13]rf_20k         : uint16 LE, unit 0.1 Ω
+      [14-15]lf_20k         : uint16 LE, unit 0.1 Ω
+      [16-17]rh_100k        : uint16 LE, unit 0.1 Ω
+      [18-19]lh_100k        : uint16 LE, unit 0.1 Ω
+      [20-21]trunk_100k     : uint16 LE, unit 0.1 Ω
+      [22-23]rf_100k        : uint16 LE, unit 0.1 Ω
+      [24-25]lf_100k        : uint16 LE, unit 0.1 Ω
 
     Raises ValueError for any out-of-range value before packing.
     """
@@ -205,28 +205,28 @@ def build_body270_input(
         return round(impedances[key] * 10)
 
     # fmt: off
-    # Format: BBB = 3 bytes (product_number, gender, age)
-    #         12×H = 24 bytes (height_cm, weight, and 10 impedance fields)
-    #         Total = 27 bytes
+    # Format: BBBB = 4 bytes (product_number, gender, height_cm, age)
+    #         11×H = 22 bytes (weight and 10 impedance fields)
+    #         Total = 26 bytes
     data = struct.pack(
-        "<BBBHHHHHHHHHHHH",
+        "<BBBBHHHHHHHHHHH",
         product_number,    # [0]    uint8
         gender,            # [1]    uint8
-        age,               # [2]    uint8
-        height_cm,         # [3-4]  uint16 LE
-        weight_raw,        # [5-6]  uint16 LE
-        imp("rh_20k"),     # [7-8]
-        imp("lh_20k"),     # [9-10]
-        imp("trunk_20k"),  # [11-12]
-        imp("rf_20k"),     # [13-14]
-        imp("lf_20k"),     # [15-16]
-        imp("rh_100k"),    # [17-18]
-        imp("lh_100k"),    # [19-20]
-        imp("trunk_100k"), # [21-22]
-        imp("rf_100k"),    # [23-24]
-        imp("lf_100k"),    # [25-26]
+        height_cm,         # [2]    uint8
+        age,               # [3]    uint8
+        weight_raw,        # [4-5]  uint16 LE
+        imp("rh_20k"),     # [6-7]
+        imp("lh_20k"),     # [8-9]
+        imp("trunk_20k"),  # [10-11]
+        imp("rf_20k"),     # [12-13]
+        imp("lf_20k"),     # [14-15]
+        imp("rh_100k"),    # [16-17]
+        imp("lh_100k"),    # [18-19]
+        imp("trunk_100k"), # [20-21]
+        imp("rf_100k"),    # [22-23]
+        imp("lf_100k"),    # [24-25]
     )
     # fmt: on
 
-    assert len(data) == 27, f"build_body270_input produced {len(data)} bytes, expected 27"
+    assert len(data) == 26, f"build_body270_input produced {len(data)} bytes, expected 26"
     return data

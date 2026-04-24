@@ -135,8 +135,8 @@ def _build_valid() -> bytes:
     )
 
 
-def test_build_body270_valid_returns_27_bytes() -> None:
-    assert len(_build_valid()) == 27
+def test_build_body270_valid_returns_26_bytes() -> None:
+    assert len(_build_valid()) == 26
 
 
 def test_build_body270_full_frame_checksum() -> None:
@@ -215,22 +215,22 @@ def test_build_body270_gender_encoded_correctly() -> None:
 
 def test_build_body270_weight_encoding() -> None:
     data = build_body270_input(gender=1, height_cm=175, age=30, weight_kg=75.0, impedances=VALID_IMPEDANCES)
-    # bytes [5-6] = weight in 0.1 kg = 750
-    (weight_raw,) = struct.unpack_from("<H", data, 5)
+    # bytes [4-5] = weight in 0.1 kg = 750
+    (weight_raw,) = struct.unpack_from("<H", data, 4)
     assert weight_raw == 750
 
 
 def test_build_body270_rh_20k_encoding() -> None:
     data = build_body270_input(gender=1, height_cm=175, age=30, weight_kg=75.0, impedances=VALID_IMPEDANCES)
-    # bytes [7-8] = rh_20k in 0.1 Ω = 3600
-    (rh_raw,) = struct.unpack_from("<H", data, 7)
+    # bytes [6-7] = rh_20k in 0.1 Ω = 3600
+    (rh_raw,) = struct.unpack_from("<H", data, 6)
     assert rh_raw == 3600
 
 
 def test_build_body270_trunk_20k_encoding() -> None:
     data = build_body270_input(gender=1, height_cm=175, age=30, weight_kg=75.0, impedances=VALID_IMPEDANCES)
-    # bytes [11-12] = trunk_20k = 28.0 Ω → 280
-    (trunk_raw,) = struct.unpack_from("<H", data, 11)
+    # bytes [10-11] = trunk_20k = 28.0 Ω → 280
+    (trunk_raw,) = struct.unpack_from("<H", data, 10)
     assert trunk_raw == 280
 
 
