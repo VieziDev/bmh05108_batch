@@ -90,6 +90,7 @@ def run_batch(
     product_number: int = 0,
     resume: bool = False,
     inter_command_gap_s: float = 0.100,
+    limit: int | None = None,
 ) -> None:
     """Orchestrate N workers (one per port).
 
@@ -120,6 +121,8 @@ def run_batch(
             row_ids.append(int(row["row_id"]))
 
     row_ids.sort()
+    if limit is not None:
+        row_ids = row_ids[:limit]
     chunk_size = (len(row_ids) + n_workers - 1) // n_workers
 
     chunks: list[tuple[int, int]] = []

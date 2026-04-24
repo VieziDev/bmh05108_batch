@@ -40,6 +40,7 @@ def cmd_run(
     checkpoint_dir: Annotated[str, typer.Option("--checkpoint-dir", help="Directory for checkpoints and part files")] = "data/.checkpoints",
     resume: Annotated[bool, typer.Option("--resume/--no-resume", help="Resume from checkpoints")] = False,
     gap_ms: Annotated[int, typer.Option("--gap-ms", help="Minimum inter-command gap (milliseconds)")] = 100,
+    limit: Annotated[int, typer.Option("--limit", help="Process only the first N rows (useful for benchmarking)")] = 0,
 ) -> None:
     """Run the full batch over the input CSV using one worker per port."""
     from bmh05108_batch.orchestrator import run_batch
@@ -47,6 +48,7 @@ def cmd_run(
     console.print(
         f"[bold]BMH05108 Batch Runner[/bold] — input=[cyan]{input}[/cyan] "
         f"ports=[cyan]{', '.join(ports)}[/cyan] resume=[cyan]{resume}[/cyan]"
+        + (f" limit=[cyan]{limit}[/cyan]" if limit else "")
     )
 
     run_batch(
@@ -57,6 +59,7 @@ def cmd_run(
         product_number=product_number,
         resume=resume,
         inter_command_gap_s=gap_ms / 1000.0,
+        limit=limit or None,
     )
 
 
