@@ -126,9 +126,9 @@ class Device:
             ValueError: if sample fields are out of hardware-validated range.
         """
         data = build_body270_input(
-            gender=int(sample["gender"]),  # type: ignore[arg-type]
-            height_cm=int(sample["height_cm"]),  # type: ignore[arg-type]
-            age=int(sample["age"]),  # type: ignore[arg-type]
+            gender=round(float(sample["gender"])),  # type: ignore[arg-type]
+            height_cm=round(float(sample["height_cm"])),  # type: ignore[arg-type]
+            age=round(float(sample["age"])),  # type: ignore[arg-type]
             weight_kg=float(sample["weight_kg"]),  # type: ignore[arg-type]
             impedances={
                 k: float(sample[k])  # type: ignore[index]
@@ -137,7 +137,7 @@ class Device:
                     "rh_100k", "lh_100k", "trunk_100k", "rf_100k", "lf_100k",
                 )
             },
-            product_number=int(sample.get("product_number", 0)),  # type: ignore[arg-type]
+            product_number=round(float(sample.get("product_number", 0))),  # type: ignore[arg-type]
         )
 
         last_exc: ProtocolError | None = None

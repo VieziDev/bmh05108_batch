@@ -118,9 +118,9 @@ def cmd_dry_run(
         else:
             try:
                 data = build_body270_input(
-                    gender=int(row["gender"]),  # type: ignore[arg-type]
-                    height_cm=int(row["height_cm"]),  # type: ignore[arg-type]
-                    age=int(row["age"]),  # type: ignore[arg-type]
+                    gender=round(float(row["gender"])),  # type: ignore[arg-type]
+                    height_cm=round(float(row["height_cm"])),  # type: ignore[arg-type]
+                    age=round(float(row["age"])),  # type: ignore[arg-type]
                     weight_kg=float(row["weight_kg"]),  # type: ignore[arg-type]
                     impedances={
                         k: float(row[k])  # type: ignore[index]
