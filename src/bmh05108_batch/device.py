@@ -156,8 +156,6 @@ class Device:
                     time.sleep(self._gap)
                     continue
                 break
-            except BodyError:
-                raise  # Re-raise so caller can handle; won't actually be raised from here
 
         assert last_exc is not None
         raise last_exc
