@@ -3,9 +3,10 @@
 generate_samples.py — Simulated bioimpedance dataset for BMH05108 Body270 batch runner.
 
 Generation strategy:
-  75% realistic — literature-calibrated Normal distributions (Kyle et al. 2001, Clin Nutr,
-    at 50kHz scaled to 20kHz ×1.15) broken down by sex × age group, corrected per individual
-    for fat% deviation from the group mean and for hydration decline with age.
+  75% realistic — literature-calibrated Normal distributions anchored in Forejt et al. 2023
+    (Int J Med Sci, InBody 230 DSM-BIA, n=95 healthy adults, 20kHz and 100kHz direct measurements)
+    broken down by sex × age group, corrected per individual for fat% deviation from the group
+    mean and for hydration decline with age.
   25% space-filling — Latin Hypercube Sampling across the full hardware range, so the
     downstream regression sees the algorithm's behavior at the extremes (not just the
     realistic population cluster).
@@ -31,9 +32,9 @@ import numpy as np
 import pandas as pd
 
 # ─── Hardware limits ──────────────────────────────────────────────────────────
-AGE_MIN,    AGE_MAX     = 6,     99
-HEIGHT_MIN, HEIGHT_MAX  = 90.0,  220.0
-WEIGHT_MIN, WEIGHT_MAX  = 10.0,  200.0
+AGE_MIN,    AGE_MAX     = 16,     80
+HEIGHT_MIN, HEIGHT_MAX  = 140.0,  220.0
+WEIGHT_MIN, WEIGHT_MAX  = 40.0,  200.0
 LIMB_Z_MIN, LIMB_Z_MAX  = 100.0, 600.0
 TRUNK_Z_MIN, TRUNK_Z_MAX = 10.0, 100.0
 
@@ -42,18 +43,20 @@ ARM_ASYM_CLIP = 0.07    # |rh−lh|/mean < 15%  → |asym| < 0.075
 LEG_ASYM_CLIP = 0.038   # |rf−lf|/mean < 8%   → |asym| < 0.040
 
 # Beta dispersion: Z_100k = Z_20k × factor, factor strictly < 1
-DISP_ARM_LO,   DISP_ARM_HI   = 0.82, 0.92
-DISP_LEG_LO,   DISP_LEG_HI   = 0.83, 0.93
-DISP_TRUNK_LO, DISP_TRUNK_HI = 0.80, 0.90
+# Calibrated from Forejt 2023 (arm: 0.878–0.900, leg: 0.877–0.896, trunk: 0.836–0.868)
+# and Wagner 2022 (trunk: 0.810). Ranges include ±1 biological buffer.
+DISP_ARM_LO,   DISP_ARM_HI   = 0.875, 0.905
+DISP_LEG_LO,   DISP_LEG_HI   = 0.872, 0.900
+DISP_TRUNK_LO, DISP_TRUNK_HI = 0.808, 0.872
 
 # Structural floors — derived from invariants:
-#   _LIMB_BASE_MIN   = LIMB_Z_MIN / DISP_ARM_LO + 0.1 = 122.0
-#     → ensures limb_100k ≥ 100 after dispersion, no lower-bound floor collision
+#   _LIMB_BASE_MIN   = LIMB_Z_MIN / ((1−ARM_ASYM_CLIP) × DISP_ARM_LO) + 0.1 = 123.0
+#     → ensures limb_100k ≥ 100 after worst-case asymmetry + dispersion, no floor collision
 #   _LIMB_BASE_MAX_LEG = LIMB_Z_MAX / _ARM_LEG_GAP = 600/1.125 = 533 → use 532
 #     → ensures arm_base × (1−ARM_ASYM) > leg_base × (1+LEG_ASYM) when arm_base ≤ LIMB_Z_MAX
-#   _TRUNK_BASE_MIN  = TRUNK_Z_MIN / DISP_TRUNK_LO + 0.2 = 12.7
+#   _TRUNK_BASE_MIN  = TRUNK_Z_MIN / DISP_TRUNK_LO + 0.2 = 12.6 → use 12.7
 #     → ensures trunk_100k ≥ 10 + ε after dispersion
-_LIMB_BASE_MIN    = 122.0
+_LIMB_BASE_MIN    = 123.0
 _LIMB_BASE_MAX_LEG = 532.0
 _TRUNK_BASE_MIN   = 12.7
 _ARM_LEG_GAP      = 1.125   # arm_base ≥ leg_base × 1.125 → arm_20k > leg_20k under worst asym
@@ -62,23 +65,28 @@ _ARM_LEG_GAP      = 1.125   # arm_base ≥ leg_base × 1.125 → arm_20k > leg_2
 LHS_FRACTION = 0.25
 
 # ─── Literature-calibrated 20kHz parameters ──────────────────────────────────
-# Kyle et al. 2001 (Clin Nutr) — healthy European adults at 50kHz, converted to 20kHz (×1.15).
-# Children: +15% vs. adults (higher Z per height, lower muscle fraction — Baumgartner 1991).
-# Elderly:  +15% vs. adults (sarcopenia + mild chronic dehydration — Roubenoff 1997).
+# Anchor: Forejt et al. 2023 (Int J Med Sci 20(13):1783–1790, doi:10.7150/ijms.77396)
+#   InBody 230 (DSM-BIA), n=95 healthy adults, age ~24y, direct measurement at 20kHz and 100kHz.
+#   young_F: arm=419±37 Ω, leg=292±27 Ω, trunk=27.2±2.4 Ω  (mean of L+R)
+#   young_M: arm=319±34 Ω, leg=261±32 Ω, trunk=24.4±2.6 Ω
+# Adult (25–65): +4% vs. young baseline — residual connective-tissue and muscle-fiber
+#   composition shifts not captured by fat% or hydration corrections.
+# Elderly (66–80): +12% vs. young — sarcopenia-driven intra/extracellular water redistribution
+#   beyond what fat% and hydration corrections account for (Roubenoff 1997).
 #
 # Array index = age_group × 2 + gender:
-#   0=child_F  1=child_M  2=adult_F  3=adult_M  4=elderly_F  5=elderly_M
+#   0=young_F  1=young_M  2=adult_F  3=adult_M  4=elderly_F  5=elderly_M
 
-_ARM_MU    = np.array([505., 415., 440., 360., 505., 415.])   # Ω at 20kHz
-_ARM_SIG   = np.array([ 55.,  50.,  50.,  45.,  58.,  52.])
-_LEG_MU    = np.array([368., 305., 320., 265., 368., 305.])
-_LEG_SIG   = np.array([ 50.,  48.,  45.,  38.,  52.,  50.])
-_TRK_MU    = np.array([ 41.,  32.,  36.,  28.,  41.,  32.])
-_TRK_SIG   = np.array([ 10.,   8.,   9.,   7.,  10.,   8.])
+_ARM_MU    = np.array([420., 319., 437., 332., 470., 357.])   # Ω at 20kHz
+_ARM_SIG   = np.array([ 37.,  34.,  41.,  37.,  44.,  41.])
+_LEG_MU    = np.array([292., 261., 304., 272., 327., 293.])
+_LEG_SIG   = np.array([ 27.,  32.,  30.,  35.,  33.,  38.])
+_TRK_MU    = np.array([ 27.,  24.,  28.,  25.,  30.,  27.])
+_TRK_SIG   = np.array([  2.4,  2.6,  3.0,  3.0,  3.5,  3.5])
 
 # Group-median fat% (Deurenberg equation at each group's typical BMI + age).
 # Used to compute individual fat-deviation correction.
-_FAT_REF = np.array([22., 15., 33., 23., 41., 33.])  # % : child_F…elderly_M
+_FAT_REF = np.array([24., 14., 33., 23., 41., 33.])  # % : young_F…elderly_M
 
 # Impedance correction per 1% fat deviation from group median.
 # Literature: ~0.5–0.8% Z per 1% fat (fat is highly resistive; muscle is conductive).
@@ -94,12 +102,12 @@ _RESIDUAL_SIG = 0.89
 # ─── Stage 1: Demographics ────────────────────────────────────────────────────
 
 def _sample_demographics(n: int, rng: np.random.Generator):
-    # Age group: 0=children 6–17 (10%), 1=adults 18–65 (70%), 2=elderly 66–99 (20%)
-    age_group = rng.choice(3, size=n, p=[0.10, 0.70, 0.20])
+    # Age group: 0=young 16–24 (15%), 1=adults 25–65 (65%), 2=elderly 66–80 (20%)
+    age_group = rng.choice(3, size=n, p=[0.15, 0.65, 0.20])
 
-    age_c = rng.normal(12,  3, size=n).clip(AGE_MIN, 17)
-    age_a = rng.normal(38, 12, size=n).clip(18, 65)
-    age_e = rng.normal(73,  6, size=n).clip(66, AGE_MAX)
+    age_c = rng.normal(19, 2.5, size=n).clip(AGE_MIN, 24)
+    age_a = rng.normal(42, 11,  size=n).clip(25, 65)
+    age_e = rng.normal(73,  6,  size=n).clip(66, AGE_MAX)
     age = np.where(age_group == 0, age_c,
           np.where(age_group == 2, age_e, age_a)).round().astype(int)
 
@@ -107,16 +115,16 @@ def _sample_demographics(n: int, rng: np.random.Generator):
 
     # Height: Normal(mu, sigma) by sex × age group
     # [child_F, child_M, adult_F, adult_M, elderly_F, elderly_M]
-    h_mu  = np.array([130., 132., 163., 175., 160., 171.])
-    h_sig = np.array([ 12.,  12.,   7.,   8.,   7.,   8.])
+    h_mu  = np.array([162., 173., 163., 175., 160., 171.])
+    h_sig = np.array([  7.,   8.,   7.,   8.,   7.,   8.])
     idx   = age_group * 2 + gender
     height = (rng.normal(size=n) * h_sig[idx] + h_mu[idx]).clip(HEIGHT_MIN, HEIGHT_MAX)
 
     # BMI → weight (guarantees physiologically plausible weight/height combos)
-    bmi_mu  = np.array([17.5, 25.5, 26.5])
-    bmi_sig = np.array([ 2.5,  4.5,  4.0])
-    bmi_lo  = np.array([13.0, 14.0, 15.0])
-    bmi_hi  = np.array([28.0, 45.0, 40.0])
+    bmi_mu  = np.array([21.5, 25.5, 26.5])
+    bmi_sig = np.array([ 3.0,  4.5,  4.0])
+    bmi_lo  = np.array([14.0, 14.0, 15.0])
+    bmi_hi  = np.array([32.0, 45.0, 40.0])
     bmi_raw = rng.normal(size=n) * bmi_sig[age_group] + bmi_mu[age_group]
     bmi     = np.clip(bmi_raw, bmi_lo[age_group], bmi_hi[age_group])
     weight  = (bmi * (height / 100.0) ** 2).clip(WEIGHT_MIN, WEIGHT_MAX)
@@ -287,9 +295,9 @@ def _print_stats(df: pd.DataFrame, t_elapsed: float, seed: int,
     mean_leg   = (df["rf_20k"] + df["lf_20k"]) / 2.0
 
     hw_checks = [
-        ("age ∉ [6, 99]",           (df["age"] < 6) | (df["age"] > 99)),
-        ("height_cm ∉ [90, 220]",   (df["height_cm"] < 90) | (df["height_cm"] > 220)),
-        ("weight_kg ∉ [10, 200]",   (df["weight_kg"] < 10) | (df["weight_kg"] > 200)),
+        (f"age ∉ [{AGE_MIN}, {AGE_MAX}]",               (df["age"] < AGE_MIN)    | (df["age"]        > AGE_MAX)),
+        (f"height_cm ∉ [{HEIGHT_MIN}, {HEIGHT_MAX}]", (df["height_cm"] < HEIGHT_MIN) | (df["height_cm"] > HEIGHT_MAX)),
+        (f"weight_kg ∉ [{WEIGHT_MIN}, {WEIGHT_MAX}]", (df["weight_kg"] < WEIGHT_MIN) | (df["weight_kg"] > WEIGHT_MAX)),
         ("limb_20k ∉ [100, 600]",   (limbs_20k < 100).any(axis=1)  | (limbs_20k > 600).any(axis=1)),
         ("limb_100k ∉ [100, 600]",  (limbs_100k < 100).any(axis=1) | (limbs_100k > 600).any(axis=1)),
         ("trunk_20k ∉ [10, 100]",   (df["trunk_20k"]  < 10) | (df["trunk_20k"]  > 100)),
