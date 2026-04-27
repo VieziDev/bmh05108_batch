@@ -178,7 +178,6 @@ class Device:
 
         parser = Body270Parser()
         deadline = time.monotonic() + _COLLECT_TIMEOUT_S
-        seen_error_type: int = 0
 
         while not parser.complete:
             if time.monotonic() > deadline:
@@ -195,16 +194,14 @@ class Device:
                 continue
 
             if error_type != 0:
-                # Non-zero error_type is an algorithm-level warning (e.g. 0x51 = out of
-                # reference range). The device still sends all result packets, so we
-                # continue collecting and record the code as metadata.
-                seen_error_type = error_type
+                return BodyError(
+                    error_type=error_type,
+                    message=f"Device returned error_type=0x{error_type:02X}",
+                )
 
             parser.feed_packet(pkt_data)
 
-        result = parser.parse()
-        result.device_error_type = seen_error_type
-        return result
+        return parser.parse()
 
     def _require_open(self) -> serial.Serial:
         """Return the open Serial instance or raise RuntimeError."""
