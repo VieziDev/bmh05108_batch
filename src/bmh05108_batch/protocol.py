@@ -7,8 +7,11 @@ Frame format (host → device):
   checksum  = two's complement of sum of all preceding bytes
 
 Frame format (device → host):
-  [0xAA][total_len][cmd][error_type][packet_info][data...][checksum]
-  Same checksum algorithm.
+  [0xAA][total_len][cmd][payload...][checksum]
+  Same checksum algorithm. Payload layout is command-specific:
+    - 0xD0 (Body270):     [Number_of_packages][error_type][parameter...]
+    - 0xE0 (get_version): [app][version_lo][version_hi]
+    - 0xA0 / 0xB0:        [switch_result]
 
 NOTE on build_body270_input byte layout:
   The 27-byte data section matches the field order in the protocol PDF (§6, table p.14).
@@ -82,13 +85,14 @@ def verify_checksum(frame: bytes) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def read_frame(port: "serial.Serial") -> tuple[int, int, bytes]:
+def read_frame(port: "serial.Serial") -> tuple[int, bytes]:
     """Read one complete response frame from the serial port.
 
     Scans for the 0xAA header byte, reads total_len, then reads the rest of
-    the frame, verifies the checksum, and returns (cmd, error_type, data).
+    the frame, verifies the checksum, and returns (cmd, payload).
 
-    data is the payload after stripping [0xAA][total_len][cmd][error_type][checksum].
+    payload contains every byte between cmd and checksum. Its layout depends
+    on the command (see module docstring) — callers parse it semantically.
 
     Raises:
         HeaderError   — could not find 0xAA within 256 scanned bytes
@@ -111,9 +115,9 @@ def read_frame(port: "serial.Serial") -> tuple[int, int, bytes]:
         raise TimeoutError("Timed out reading total_len byte")
     total_len = raw_len[0]
 
-    if total_len < 5:
-        # Minimum: AA + total_len + cmd + error_type + checksum = 5
-        raise ProtocolError(f"total_len={total_len} too small (minimum 5)")
+    if total_len < 4:
+        # Minimum: AA + total_len + cmd + checksum = 4
+        raise ProtocolError(f"total_len={total_len} too small (minimum 4)")
 
     # Read the remaining bytes: total_len - 2 (we already read AA + total_len)
     remaining_count = total_len - 2
@@ -129,12 +133,9 @@ def read_frame(port: "serial.Serial") -> tuple[int, int, bytes]:
             f"Checksum mismatch for frame of length {total_len}: {frame.hex()}"
         )
 
-    # Parse: [AA][total_len][cmd][error_type][...data...][checksum]
     cmd = frame[2]
-    error_type = frame[3]
-    # data is everything between error_type and checksum
-    data = frame[4:-1]
-    return cmd, error_type, data
+    payload = frame[3:-1]
+    return cmd, payload
 
 
 # ---------------------------------------------------------------------------

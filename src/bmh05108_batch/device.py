@@ -87,25 +87,30 @@ class Device:
     # Public commands
     # -----------------------------------------------------------------------
 
-    def get_version(self) -> str:
+    def get_version(self, app: int = 0) -> str:
         """Send the 0xE0 version request and return the firmware version string.
 
-        Raises ProtocolError on communication failure.
+        app: 0=Master, 1=Bia, 2=Weight (per protocol §8).
+
+        Response payload layout: [app][version_lo][version_hi].
+        Raises ProtocolError on communication failure or malformed response.
         """
         port = self._require_open()
-        frame = build_frame(CMD_GET_VERSION, b"")
+        frame = build_frame(CMD_GET_VERSION, bytes([app]))
         port.reset_input_buffer()
         port.write(frame)
         time.sleep(self._gap)
 
-        _cmd, error_type, data = read_frame(port)
-        if error_type != 0:
-            raise ProtocolError(f"get_version error_type=0x{error_type:02X}")
+        _cmd, payload = read_frame(port)
+        if len(payload) < 3:
+            raise ProtocolError(
+                f"get_version payload too short: {len(payload)} bytes (need 3)"
+            )
 
-        try:
-            return data.decode("ascii", errors="replace").rstrip("\x00").strip()
-        except Exception:
-            return data.hex()
+        resp_app = payload[0]
+        version_lo = payload[1]
+        version_hi = payload[2]
+        return f"V{version_hi}.{version_lo} (app=0x{resp_app:02X})"
 
     def run_body270(self, sample: dict[str, object]) -> Body270Result | BodyError:
         """Execute one Body270 measurement and collect the multi-packet response.
@@ -167,6 +172,9 @@ class Device:
     def _send_and_collect(self, data: bytes) -> Body270Result | BodyError:
         """Send a Body270 frame and collect all response packets.
 
+        Body270 response payload layout (per protocol §6):
+          [Number_of_packages][error_type][parameter...]
+
         Raises BodyError (as a special return) when error_type != 0.
         Raises ProtocolError on timeout or checksum failure.
         """
@@ -185,7 +193,7 @@ class Device:
                     f"Timed out collecting Body270 packets after {_COLLECT_TIMEOUT_S}s"
                 )
 
-            cmd, error_type, pkt_data = read_frame(port)
+            cmd, payload = read_frame(port)
 
             if cmd != CMD_BODY270:
                 logger.warning(
@@ -193,13 +201,22 @@ class Device:
                 )
                 continue
 
+            if len(payload) < 2:
+                raise ProtocolError(
+                    f"Body270 payload too short: {len(payload)} bytes (need >= 2)"
+                )
+
+            packet_info = payload[0]
+            error_type = payload[1]
+
             if error_type != 0:
                 return BodyError(
                     error_type=error_type,
                     message=f"Device returned error_type=0x{error_type:02X}",
                 )
 
-            parser.feed_packet(pkt_data)
+            # Body270Parser expects [packet_info, ...parameter_data...].
+            parser.feed_packet(bytes([packet_info]) + payload[2:])
 
         return parser.parse()
 
